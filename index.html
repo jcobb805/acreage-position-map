@@ -57,6 +57,16 @@
 </style>
 </head>
 <body>
+<div id="gate" style="position:fixed;inset:0;z-index:9999;background:radial-gradient(circle at 50% 30%,#0e1730,#05080f);display:flex;align-items:center;justify-content:center">
+  <div style="width:330px;max-width:88vw;background:#111a2e;border:1px solid #22304d;border-radius:12px;padding:26px 24px;box-shadow:0 20px 60px rgba(0,0,0,.5)">
+    <div style="font-size:16px;font-weight:700;color:#e6edf7;margin-bottom:4px">Acreage Position Map</div>
+    <div style="font-size:12px;color:#8b9bb7;margin-bottom:18px">Confidential — enter password to continue.</div>
+    <input id="pw" type="password" placeholder="Password" autofocus
+      style="width:100%;padding:10px 12px;border-radius:7px;border:1px solid #22304d;background:#0a0e1a;color:#e6edf7;font-size:14px;outline:none"/>
+    <button id="pwBtn" style="width:100%;margin-top:12px;padding:10px;border:none;border-radius:7px;background:#4aa3ff;color:#06101f;font-weight:700;font-size:14px;cursor:pointer">Unlock</button>
+    <div id="pwErr" style="color:#e74c3c;font-size:12px;margin-top:10px;min-height:15px"></div>
+  </div>
+</div>
 <div id="app">
   <header>
     <h1>Acreage Position Map<br><small>Cinco · OLS · OE · Cherokee Moon</small></h1>
@@ -94,7 +104,7 @@
         </select>
       </div>
       <div class="grp">
-        <div class="note">Acreage shapes &amp; section ownership from the entity inventories; wells from <i>Well List — Cinco/OLS/OE/Cherokee Moon</i>. Click any section or well for detail. Deals under evaluation can be added to <code>data.json</code> → <code>deals</code>.</div>
+        <div class="note"><b>Diagonal stripes</b> (sections &amp; well markers) = co-owned by multiple entities, blending those entities' colors. Acreage shapes &amp; section ownership from the entity inventories; wells from <i>Well List — Cinco/OLS/OE/Cherokee Moon</i>. Click any section or well for detail. Deals under evaluation can be added to <code>data.json</code> → <code>deals</code>.</div>
       </div>
     </aside>
   </div>
@@ -122,9 +132,54 @@ const labelLayer=L.layerGroup().addTo(map);
 const twpLabelLayer=L.layerGroup().addTo(map);
 let twpCentroids=[];
 const entityLayers={}, wellLayers={}, cmWellLayers={};
-let DATA=null, rfOverlay=null;
+let DATA=null, rfOverlay=null, RF_IMG='';
 
-fetch('data.json').then(r=>r.json()).then(d=>{DATA=d;init(d);});
+// SVG renderer + diagonal-stripe patterns for co-owned (shared) sections
+const entRenderer=L.svg({padding:.4});
+let defsEl=null; const madePat={};
+function ensureDefs(){ if(defsEl)return defsEl;
+  const svg=entRenderer._container; if(!svg)return null;
+  defsEl=svg.querySelector('defs')||svg.insertBefore(document.createElementNS('http://www.w3.org/2000/svg','defs'),svg.firstChild);
+  return defsEl;}
+function stripeId(cols){return 'st_'+cols.map(c=>c.replace('#','')).join('_');}
+function stripeURL(cols){
+  const id=stripeId(cols); if(madePat[id])return `url(#${id})`;
+  const defs=ensureDefs(); if(!defs)return cols[0];
+  const NS='http://www.w3.org/2000/svg', band=9, w=band*cols.length;
+  const p=document.createElementNS(NS,'pattern');
+  p.setAttribute('id',id);p.setAttribute('width',w);p.setAttribute('height',band);
+  p.setAttribute('patternUnits','userSpaceOnUse');p.setAttribute('patternTransform','rotate(45)');
+  cols.forEach((c,i)=>{const r=document.createElementNS(NS,'rect');
+    r.setAttribute('x',i*band);r.setAttribute('width',band);r.setAttribute('height',band);r.setAttribute('fill',c);p.appendChild(r);});
+  defs.appendChild(p); madePat[id]=1; return `url(#${id})`;}
+
+// ---- password gate: AES-GCM / PBKDF2 client-side decryption ----
+async function decRaw(url,pw){
+  const b=(await (await fetch(url)).text()).trim();
+  const raw=Uint8Array.from(atob(b),c=>c.charCodeAt(0));
+  const salt=raw.slice(0,16), iv=raw.slice(16,28), ct=raw.slice(28);
+  const km=await crypto.subtle.importKey('raw',new TextEncoder().encode(pw),'PBKDF2',false,['deriveKey']);
+  const key=await crypto.subtle.deriveKey({name:'PBKDF2',salt,iterations:200000,hash:'SHA-256'},km,{name:'AES-GCM',length:256},false,['decrypt']);
+  return new Uint8Array(await crypto.subtle.decrypt({name:'AES-GCM',iv},key,ct));
+}
+async function unlock(pw){
+  const data=JSON.parse(new TextDecoder().decode(await decRaw('data.enc',pw)));   // throws on wrong pw
+  const img=await decRaw('redfork.enc',pw);
+  RF_IMG=URL.createObjectURL(new Blob([img],{type:'image/webp'}));
+  DATA=data; init(data);
+  document.getElementById('gate').style.display='none';
+  setTimeout(()=>map.invalidateSize(),60);
+  try{sessionStorage.setItem('rf_pw',pw);}catch(e){}
+}
+function tryUnlock(){
+  const pw=document.getElementById('pw').value, btn=document.getElementById('pwBtn'), err=document.getElementById('pwErr');
+  if(!pw)return; btn.textContent='Unlocking…'; btn.disabled=true; err.textContent='';
+  unlock(pw).catch(()=>{err.textContent='Incorrect password.';btn.textContent='Unlock';btn.disabled=false;
+    try{sessionStorage.removeItem('rf_pw');}catch(e){}});
+}
+document.getElementById('pwBtn').onclick=tryUnlock;
+document.getElementById('pw').addEventListener('keydown',e=>{if(e.key==='Enter')tryUnlock();});
+(function(){let s;try{s=sessionStorage.getItem('rf_pw');}catch(e){} if(s) unlock(s).catch(()=>{try{sessionStorage.removeItem('rf_pw');}catch(e){}});})();
 
 function fmt(n){return n==null?'':Number(n).toLocaleString(undefined,{maximumFractionDigits:1});}
 
@@ -154,10 +209,14 @@ function init(d){
     for(const k in secs){
       const s=secs[k];
       if(s.own[ent]==null) continue;
-      const poly=L.polygon(s.r,{color:ECOLOR[ent],weight:1.3,fillColor:ECOLOR[ent],fillOpacity:.32,opacity:.9});
+      const owners=d.entities.filter(e=>s.own[e]!=null);
+      const cols=owners.map(e=>ECOLOR[e]); const shared=cols.length>1;
+      const poly=L.polygon(s.r,{renderer:entRenderer,color:shared?'#2b3a55':ECOLOR[ent],
+        weight:shared?1.4:1.3,fillColor:ECOLOR[ent],fillOpacity:.34,opacity:.95});
       poly.bindPopup(secPopup(k,s));
-      poly.on('mouseover',()=>poly.setStyle({fillOpacity:.55}));
-      poly.on('mouseout',()=>poly.setStyle({fillOpacity:.32}));
+      poly.on('add',()=>{ if(poly._path) poly._path.setAttribute('fill', shared?stripeURL(cols):ECOLOR[ent]); });
+      poly.on('mouseover',()=>poly.setStyle({fillOpacity:.6}));
+      poly.on('mouseout',()=>poly.setStyle({fillOpacity:.34}));
       poly.addTo(lg);
     }
     entityLayers[ent]=lg;
@@ -182,9 +241,18 @@ function init(d){
 
   // ---- wells ----
   SORDER.forEach(st=>wellLayers[st]=L.layerGroup().addTo(map));
-  d.wells.forEach(w=>{
+  d.wells.forEach((w,i)=>{
     const c=SCOLOR[w.status]||'#aaa';
-    const m=L.circleMarker([w.lat,w.lng],{radius:5.5,color:'#0a0e1a',weight:1.2,fillColor:c,fillOpacity:1});
+    const owners=String(w.entity).split(',').map(s=>s.trim()).filter(e=>ECOLOR[e]);
+    let m;
+    if(owners.length>1){            // shared well -> striped circle, status ring
+      const cols=owners.map(e=>ECOLOR[e]); const band=5,w2=band*cols.length;
+      const rects=cols.map((cc,j)=>`<rect x="${j*band}" width="${band}" height="${w2}" fill="${cc}"/>`).join('');
+      const svg=`<svg width="16" height="16" viewBox="0 0 16 16"><defs><pattern id="wp${i}" width="${w2}" height="${band}" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">${rects}</pattern></defs><circle cx="8" cy="8" r="6" fill="url(#wp${i})" stroke="${c}" stroke-width="2.5"/></svg>`;
+      m=L.marker([w.lat,w.lng],{icon:L.divIcon({className:'',iconSize:[16,16],html:svg})});
+    }else{
+      m=L.circleMarker([w.lat,w.lng],{radius:5.5,color:'#0a0e1a',weight:1.2,fillColor:c,fillOpacity:1});
+    }
     m.bindPopup(wellPopup(w));
     (wellLayers[w.status]||wellLayers['Permitted/Proposed']).addLayer(m);
   });
@@ -202,7 +270,7 @@ function init(d){
 
   // ---- Red Fork overlay ----
   const g=d.redfork;
-  rfOverlay=L.imageOverlay('redfork_overlay.webp',[[g.south,g.west],[g.north,g.east]],{opacity:.7});
+  rfOverlay=L.imageOverlay(RF_IMG,[[g.south,g.west],[g.north,g.east]],{opacity:.7});
 
   buildUI(d);
   refreshLabels();

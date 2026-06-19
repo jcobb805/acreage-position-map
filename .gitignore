@@ -1,2 +1,5 @@
 *.tmp
 _test_*.html
+
+data.json
+redfork_overlay.webp
