@@ -49,7 +49,8 @@
   .leaflet-popup-content{margin:11px 13px;font-size:12.5px;line-height:1.55}
   .leaflet-popup-content b{color:#fff}
   .pop-h{font-size:13.5px;font-weight:700;margin-bottom:4px}
-  .seclbl{color:#cfe0ff;font-size:10px;font-weight:600;text-shadow:0 0 3px #000,0 0 3px #000;background:none;border:none;box-shadow:none}
+  .seclbl{color:#566;font-size:9.5px;font-weight:600;text-shadow:0 0 2px #fff,0 0 2px #fff,0 1px 2px #fff;background:none;border:none;box-shadow:none;white-space:nowrap}
+  .twplbl{color:#42506b;font-size:13px;font-weight:700;letter-spacing:.5px;text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 6px #fff;background:none;border:none;box-shadow:none;white-space:nowrap;text-align:center}
   .badge{display:inline-block;padding:1px 7px;border-radius:10px;font-size:10.5px;font-weight:700;color:#0a0e1a}
   @media(max-width:780px){#side{width:220px}header h1 small{display:none}}
 </style>
@@ -111,6 +112,8 @@ document.getElementById('baseSel').onchange=e=>{map.removeLayer(curBase);curBase
 
 const gridLayer=L.layerGroup().addTo(map);
 const labelLayer=L.layerGroup().addTo(map);
+const twpLabelLayer=L.layerGroup().addTo(map);
+let twpCentroids=[];
 const entityLayers={}, wellLayers={};
 let DATA=null, rfOverlay=null;
 
@@ -128,6 +131,15 @@ function init(d){
     allBounds.push(...s.r);
   }
   if(allBounds.length) map.fitBounds(L.latLngBounds(allBounds).pad(.03));
+
+  // ---- township centroids for T##N R##W labels ----
+  const tw={};
+  for(const k in secs){const s=secs[k];(tw[s.twp]=tw[s.twp]||[]).push(s.c);}
+  twpCentroids=Object.keys(tw).map(t=>{
+    const a=tw[t],la=a.reduce((m,p)=>m+p[0],0)/a.length,lo=a.reduce((m,p)=>m+p[1],0)/a.length;
+    const m=t.match(/(\d+[NS])-(\d+[WE])/);
+    return {c:[la,lo],txt:m?('T'+m[1]+' R'+m[2]):t};
+  });
 
   // ---- entity acreage layers ----
   d.entities.forEach(ent=>{
@@ -236,8 +248,8 @@ function buildUI(d){
 
   // grid toggle
   document.getElementById('tGrid').onchange=e=>{
-    if(e.target.checked){gridLayer.addTo(map);refreshLabels();}
-    else{map.removeLayer(gridLayer);map.removeLayer(labelLayer);}
+    if(e.target.checked){gridLayer.addTo(map);twpLabelLayer.addTo(map);refreshLabels();}
+    else{map.removeLayer(gridLayer);map.removeLayer(labelLayer);map.removeLayer(twpLabelLayer);}
   };
   // red fork
   const rf=document.getElementById('tRF'), op=document.getElementById('rfOp');
@@ -254,16 +266,25 @@ function toggleEntity(ent,pill){
 
 // dynamic section-number labels (perf: only in view, zoom>=12)
 function refreshLabels(){
-  labelLayer.clearLayers();
+  labelLayer.clearLayers(); twpLabelLayer.clearLayers();
   if(!DATA||!document.getElementById('tGrid').checked) return;
-  if(map.getZoom()<12) return;
-  const b=map.getBounds(); let n=0;
-  for(const k in DATA.sections){
-    if(n>500)break;
-    const s=DATA.sections[k];
-    if(!b.contains(s.c))continue;
-    L.marker(s.c,{interactive:false,icon:L.divIcon({className:'seclbl',html:s.sec,iconSize:[20,12]})}).addTo(labelLayer);
-    n++;
+  const b=map.getBounds(), z=map.getZoom();
+  // township labels: visible zoom 9-12 (and as orientation while zoomed in)
+  if(z>=9){
+    twpCentroids.forEach(t=>{ if(b.contains(t.c))
+      L.marker(t.c,{interactive:false,zIndexOffset:-100,icon:L.divIcon({className:'twplbl',html:t.txt,iconSize:[90,16]})}).addTo(twpLabelLayer);
+    });
+  }
+  // section numbers: zoom >=12
+  if(z>=12){
+    let n=0;
+    for(const k in DATA.sections){
+      if(n>600)break;
+      const s=DATA.sections[k];
+      if(!b.contains(s.c))continue;
+      L.marker(s.c,{interactive:false,icon:L.divIcon({className:'seclbl',html:s.sec,iconSize:[20,12]})}).addTo(labelLayer);
+      n++;
+    }
   }
 }
 map.on('moveend zoomend',refreshLabels);
