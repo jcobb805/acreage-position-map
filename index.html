@@ -204,19 +204,24 @@ function init(d){
   });
 
   // ---- entity acreage layers ----
+  // ensure SVG renderer is live & pre-create all stripe patterns
+  if(!map.hasLayer(entRenderer)) entRenderer.addTo(map);
+  for(const k in secs){
+    const o=d.entities.filter(e=>secs[k].own[e]!=null);
+    if(o.length>1) stripeURL(o.map(e=>ECOLOR[e]));
+  }
   d.entities.forEach(ent=>{
     const lg=L.layerGroup();
     for(const k in secs){
       const s=secs[k];
       if(s.own[ent]==null) continue;
-      const owners=d.entities.filter(e=>s.own[e]!=null);
-      const cols=owners.map(e=>ECOLOR[e]); const shared=cols.length>1;
+      const owners=d.entities.filter(e=>s.own[e]!=null); const shared=owners.length>1;
+      const fill= shared ? stripeURL(owners.map(e=>ECOLOR[e])) : ECOLOR[ent];
       const poly=L.polygon(s.r,{renderer:entRenderer,color:shared?'#2b3a55':ECOLOR[ent],
-        weight:shared?1.4:1.3,fillColor:ECOLOR[ent],fillOpacity:.34,opacity:.95});
+        weight:shared?1.4:1.3,fillColor:fill,fillOpacity:shared?.62:.34,opacity:.95});
       poly.bindPopup(secPopup(k,s));
-      poly.on('add',()=>{ if(poly._path) poly._path.setAttribute('fill', shared?stripeURL(cols):ECOLOR[ent]); });
-      poly.on('mouseover',()=>poly.setStyle({fillOpacity:.6}));
-      poly.on('mouseout',()=>poly.setStyle({fillOpacity:.34}));
+      poly.on('mouseover',()=>poly.setStyle({fillOpacity:shared?.8:.6}));
+      poly.on('mouseout',()=>poly.setStyle({fillOpacity:shared?.62:.34}));
       poly.addTo(lg);
     }
     entityLayers[ent]=lg;
