@@ -331,7 +331,9 @@ function buildUI(d){
   d.entities.forEach(e=>{const v=d.entityTotals[e]||0;tot+=v;
     kp.innerHTML+=`<div class="kpi"><span><span class="dot" style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${ECOLOR[e]};margin-right:6px"></span>${e}</span><b>${fmt(v)} NMA</b></div>`;});
   kp.innerHTML+=`<div class="kpi" style="border:none;margin-top:4px"><span><b>Total</b></span><b>${fmt(tot)} NMA</b></div>`;
-  kp.innerHTML+=`<div class="kpi" style="border:none"><span>Wells</span><b>${d.wells.length}</b></div>`;
+  const wkey=w=>{const a=String(w.api||'').replace(/\D/g,'');return a?('api:'+a):('nm:'+String(w.name).toLowerCase().replace(/[^a-z0-9]/g,''));};
+  const uniq=new Set([...(d.wells||[]),...(d.cmwells||[])].map(wkey));
+  kp.innerHTML+=`<div class="kpi" style="border:none"><span>Wells <span style="color:#8b9bb7;font-weight:400">(unique)</span></span><b title="${d.wells.length} Platform + ${(d.cmwells||[]).length} Cherokee Moon, ${d.wells.length+(d.cmwells||[]).length-uniq.size} shared">${uniq.size}</b></div>`;
 
   // well toggles
   const wt=document.getElementById('wellToggles');
