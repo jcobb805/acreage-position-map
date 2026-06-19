@@ -49,6 +49,7 @@
   .leaflet-popup-content{margin:11px 13px;font-size:12.5px;line-height:1.55}
   .leaflet-popup-content b{color:#fff}
   .pop-h{font-size:13.5px;font-weight:700;margin-bottom:4px}
+  .cmdiamond{transform:rotate(45deg);border:1.4px solid #0a0e1a;box-shadow:0 0 0 1px rgba(255,255,255,.6)}
   .seclbl{color:#566;font-size:9.5px;font-weight:600;text-shadow:0 0 2px #fff,0 0 2px #fff,0 1px 2px #fff;background:none;border:none;box-shadow:none;white-space:nowrap}
   .twplbl{color:#42506b;font-size:13px;font-weight:700;letter-spacing:.5px;text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 6px #fff;background:none;border:none;box-shadow:none;white-space:nowrap;text-align:center}
   .badge{display:inline-block;padding:1px 7px;border-radius:10px;font-size:10.5px;font-weight:700;color:#0a0e1a}
@@ -71,6 +72,10 @@
       <div class="grp">
         <h3>Wells by Status</h3>
         <div id="wellToggles"></div>
+      </div>
+      <div class="grp" id="cmWellGrp" style="display:none">
+        <h3>Cherokee Moon Wells <span style="text-transform:none;letter-spacing:0">(◆ by election)</span></h3>
+        <div id="cmWellToggles"></div>
       </div>
       <div class="grp">
         <h3>Layers</h3>
@@ -99,6 +104,8 @@
 const ECOLOR={Cinco:'#f4b400',OLS:'#e8731a',OE:'#3fa7d6','Cherokee Moon':'#1abc9c'};
 const SCOLOR={'PDP':'#2ecc71','DUC':'#f39c12','Spud':'#e74c3c','Permitted/Proposed':'#5dade2'};
 const SORDER=['PDP','DUC','Spud','Permitted/Proposed'];
+const CMCOLOR={'Producing':'#27ae60','Operations Commenced':'#e67e22','Elected to Participate':'#2980b9','Election To Be Made':'#9b8c5a'};
+const CMORDER=['Producing','Operations Commenced','Elected to Participate','Election To Be Made'];
 
 const map=L.map('map',{preferCanvas:true,zoomControl:true,attributionControl:true}).setView([35.6,-99.0],10);
 const bases={
@@ -114,7 +121,7 @@ const gridLayer=L.layerGroup().addTo(map);
 const labelLayer=L.layerGroup().addTo(map);
 const twpLabelLayer=L.layerGroup().addTo(map);
 let twpCentroids=[];
-const entityLayers={}, wellLayers={};
+const entityLayers={}, wellLayers={}, cmWellLayers={};
 let DATA=null, rfOverlay=null;
 
 fetch('data.json').then(r=>r.json()).then(d=>{DATA=d;init(d);});
@@ -158,16 +165,19 @@ function init(d){
   // default: Cinco on
   entityLayers['Cinco'].addTo(map);
 
-  // ---- deals (data-driven, rotating) ----
+  // ---- deals (data-driven, rotating acquisition targets) ----
   const deals=d.deals||{};
   Object.keys(deals).forEach(name=>{
+    const col=deals[name].color||'#e84393';
+    const secObj=deals[name].sections||{};
     const lg=L.layerGroup();
-    (deals[name].sections||[]).forEach(k=>{
+    Object.keys(secObj).forEach(k=>{
       const s=secs[k]; if(!s)return;
-      L.polygon(s.r,{color:'#e84393',weight:1.4,fillColor:'#e84393',fillOpacity:.3})
-        .bindPopup('<div class="pop-h">'+name+'</div>'+k).addTo(lg);
+      const ac=secObj[k];
+      L.polygon(s.r,{color:col,weight:1.5,fillColor:col,fillOpacity:.35})
+        .bindPopup(`<div class="pop-h">${name}</div>Section ${k}`+(ac?`<br>${fmt(ac)} net ac`:'')).addTo(lg);
     });
-    entityLayers[name]=lg; entityLayers[name]._deal=true;
+    entityLayers[name]=lg; entityLayers[name]._deal=true; entityLayers[name]._color=col;
   });
 
   // ---- wells ----
@@ -177,6 +187,17 @@ function init(d){
     const m=L.circleMarker([w.lat,w.lng],{radius:5.5,color:'#0a0e1a',weight:1.2,fillColor:c,fillOpacity:1});
     m.bindPopup(wellPopup(w));
     (wellLayers[w.status]||wellLayers['Permitted/Proposed']).addLayer(m);
+  });
+
+  // ---- Cherokee Moon wells (election status, diamond markers) ----
+  (d.cmwells||[]).forEach(w=>{
+    const c=CMCOLOR[w.status]||'#bbb';
+    const m=L.marker([w.lat,w.lng],{icon:L.divIcon({className:'',iconSize:[11,11],
+      html:`<div class="cmdiamond" style="width:9px;height:9px;background:${c}"></div>`})});
+    m.bindPopup(`<div class="pop-h">${w.name}</div><span class="badge" style="background:${c};color:#fff">${w.status}</span> · Cherokee Moon<br>`+
+      (w.op?`Operator: <b>${w.op}</b><br>`:'')+(w.api?`API: ${w.api}<br>`:'')+`Unit: ${w.str}`+
+      (w.wi!=null?`<br>WI: ${(w.wi*100).toFixed(3)}%`:''));
+    (cmWellLayers[w.status]=cmWellLayers[w.status]||L.layerGroup().addTo(map)).addLayer(m);
   });
 
   // ---- Red Fork overlay ----
@@ -212,19 +233,23 @@ function buildUI(d){
     p.onclick=()=>toggleEntity(ent,p);
     bar.appendChild(p);
   });
-  // deal pills
-  Object.keys(d.deals||{}).forEach(name=>{
-    const p=document.createElement('div'); p.className='pill deal'; p.dataset.e=name;
-    p.innerHTML=`<span class="dot" style="background:#e84393"></span>${name}`;
+  // deal pills (rotating acquisition targets)
+  const dealNames=Object.keys(d.deals||{});
+  if(dealNames.length){const s2=document.createElement('div');s2.className='sep';bar.appendChild(s2);
+    const tl=document.createElement('span');tl.className='lbl';tl.textContent='EVALUATING';bar.appendChild(tl);}
+  dealNames.forEach(name=>{
+    const col=d.deals[name].color||'#e84393';
+    const p=document.createElement('div'); p.className='pill'; p.dataset.e=name;
+    p.innerHTML=`<span class="dot" style="background:${col}"></span>${name}`;
     p.onclick=()=>toggleEntity(name,p); bar.appendChild(p);
   });
   // All / None
   const sep=document.createElement('div');sep.className='sep';bar.appendChild(sep);
   const all=document.createElement('div'); all.className='pill all'; all.textContent='All';
   all.onclick=()=>{const on=!all.classList.contains('on');
-    document.querySelectorAll('.scen .pill[data-e]').forEach(p=>{const e=p.dataset.e;
-      if(on){if(!map.hasLayer(entityLayers[e]))entityLayers[e].addTo(map);p.classList.add('on');}
-      else{map.removeLayer(entityLayers[e]);p.classList.remove('on');}});
+    document.querySelectorAll('.scen .pill[data-e]').forEach(p=>{const e=p.dataset.e,lg=entityLayers[e];
+      const want= on && !map.hasLayer(lg), drop= !on && map.hasLayer(lg);
+      if(want||drop) toggleEntity(e,p);});
     all.classList.toggle('on',on);};
   bar.appendChild(all);
 
@@ -246,6 +271,20 @@ function buildUI(d){
     row.querySelector('input').onchange=e=>{e.target.checked?wellLayers[st].addTo(map):map.removeLayer(wellLayers[st]);};
   });
 
+  // Cherokee Moon wells group (election status, diamonds)
+  if((d.cmwells||[]).length){
+    const cg=document.getElementById('cmWellGrp'); cg.style.display='block';
+    const cwrap=document.getElementById('cmWellToggles');
+    const cc={}; d.cmwells.forEach(w=>cc[w.status]=(cc[w.status]||0)+1);
+    CMORDER.forEach(st=>{ if(!cmWellLayers[st])return;
+      const row=document.createElement('label'); row.className='row';
+      row.innerHTML=`<span class="swatch" style="background:${CMCOLOR[st]};transform:rotate(45deg);width:11px;height:11px"></span>${st}<span class="cnt">${cc[st]||0}</span>`;
+      const cb=document.createElement('input');cb.type='checkbox';cb.checked=true;row.prepend(cb);
+      cb.onchange=ev=>{ev.target.checked?cmWellLayers[st].addTo(map):map.removeLayer(cmWellLayers[st]);};
+      cwrap.appendChild(row);
+    });
+  }
+
   // grid toggle
   document.getElementById('tGrid').onchange=e=>{
     if(e.target.checked){gridLayer.addTo(map);twpLabelLayer.addTo(map);refreshLabels();}
@@ -260,8 +299,9 @@ function buildUI(d){
 
 function toggleEntity(ent,pill){
   const lg=entityLayers[ent]; if(!lg)return;
-  if(map.hasLayer(lg)){map.removeLayer(lg);pill.classList.remove('on');}
-  else{lg.addTo(map);pill.classList.add('on');}
+  const isDeal=lg._deal, col=lg._color;
+  if(map.hasLayer(lg)){map.removeLayer(lg);pill.classList.remove('on');if(isDeal)pill.style.background='';}
+  else{lg.addTo(map);pill.classList.add('on');if(isDeal){pill.style.background=col;pill.style.color='#fff';pill.style.borderColor='transparent';}}
 }
 
 // dynamic section-number labels (perf: only in view, zoom>=12)
