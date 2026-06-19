@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Acreage Position Map — Cinco / OLS / OE / Cherokee Moon</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+  :root{
+    --bg:#0a0e1a; --panel:#111a2e; --panel2:#0f1626; --line:#22304d;
+    --txt:#e6edf7; --muted:#8b9bb7; --accent:#4aa3ff;
+    --cinco:#f4b400; --ols:#e8731a; --oe:#3fa7d6; --cm:#1abc9c; --deal:#e84393;
+    --pdp:#2ecc71; --duc:#f39c12; --spud:#e74c3c; --perm:#5dade2;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;font-family:'Segoe UI',system-ui,Arial,sans-serif;background:var(--bg);color:var(--txt)}
+  #app{display:flex;flex-direction:column;height:100%}
+  header{display:flex;align-items:center;gap:14px;padding:10px 16px;background:linear-gradient(180deg,#0e1730,#0a0e1a);border-bottom:1px solid var(--line);flex-wrap:wrap}
+  header h1{font-size:15px;margin:0;font-weight:600;letter-spacing:.3px;white-space:nowrap}
+  header h1 small{color:var(--muted);font-weight:400;font-size:12px}
+  .scen{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .scen .lbl{font-size:11px;color:var(--muted);letter-spacing:1px;margin-right:2px}
+  .pill{cursor:pointer;border:1px solid var(--line);background:#0c1426;color:var(--muted);
+    padding:5px 13px;border-radius:20px;font-size:12.5px;font-weight:600;user-select:none;transition:.12s;display:flex;align-items:center;gap:6px}
+  .pill .dot{width:9px;height:9px;border-radius:50%}
+  .pill:hover{border-color:#3a4d75;color:var(--txt)}
+  .pill.on{color:#08101f;border-color:transparent}
+  .pill.on[data-e="Cinco"]{background:var(--cinco)} .pill.on[data-e="OLS"]{background:var(--ols)}
+  .pill.on[data-e="OE"]{background:var(--oe)} .pill.on[data-e="Cherokee Moon"]{background:var(--cm)}
+  .pill.on.deal{background:var(--deal);color:#fff}
+  .pill.all.on{background:#e6edf7;color:#0a0e1a}
+  .sep{width:1px;height:24px;background:var(--line);margin:0 2px}
+  #wrap{flex:1;display:flex;min-height:0}
+  #map{flex:1}
+  #side{width:280px;background:var(--panel);border-left:1px solid var(--line);overflow-y:auto;padding:14px 14px 30px}
+  .grp{margin-bottom:18px}
+  .grp h3{font-size:11px;letter-spacing:1.2px;color:var(--muted);margin:0 0 9px;text-transform:uppercase}
+  .row{display:flex;align-items:center;gap:9px;padding:5px 0;font-size:13px;cursor:pointer}
+  .row input{accent-color:var(--accent);width:15px;height:15px;cursor:pointer}
+  .swatch{width:14px;height:14px;border-radius:3px;border:1px solid rgba(255,255,255,.25);flex:none}
+  .swatch.circle{border-radius:50%}
+  .cnt{margin-left:auto;color:var(--muted);font-size:11.5px;font-variant-numeric:tabular-nums}
+  .slider{width:100%;margin-top:6px;accent-color:var(--accent)}
+  select{width:100%;background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:6px;font-size:13px}
+  .kpi{display:flex;justify-content:space-between;font-size:12.5px;padding:3px 0;border-bottom:1px dotted #1d2a44}
+  .kpi b{font-variant-numeric:tabular-nums}
+  .note{font-size:11px;color:var(--muted);line-height:1.5;margin-top:8px}
+  .leaflet-popup-content-wrapper,.leaflet-popup-tip{background:#0f1830;color:var(--txt);border:1px solid var(--line)}
+  .leaflet-popup-content{margin:11px 13px;font-size:12.5px;line-height:1.55}
+  .leaflet-popup-content b{color:#fff}
+  .pop-h{font-size:13.5px;font-weight:700;margin-bottom:4px}
+  .seclbl{color:#cfe0ff;font-size:10px;font-weight:600;text-shadow:0 0 3px #000,0 0 3px #000;background:none;border:none;box-shadow:none}
+  .badge{display:inline-block;padding:1px 7px;border-radius:10px;font-size:10.5px;font-weight:700;color:#0a0e1a}
+  @media(max-width:780px){#side{width:220px}header h1 small{display:none}}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>Acreage Position Map<br><small>Cinco · OLS · OE · Cherokee Moon</small></h1>
+    <div class="scen" id="scenBar"><span class="lbl">ENTITIES</span></div>
+  </header>
+  <div id="wrap">
+    <div id="map"></div>
+    <aside id="side">
+      <div class="grp">
+        <h3>Position Summary</h3>
+        <div id="kpis"></div>
+      </div>
+      <div class="grp">
+        <h3>Wells by Status</h3>
+        <div id="wellToggles"></div>
+      </div>
+      <div class="grp">
+        <h3>Layers</h3>
+        <label class="row"><input type="checkbox" id="tGrid" checked><span class="swatch" style="background:transparent;border-color:#5a6f99"></span>STR grid &amp; section #s</label>
+        <label class="row"><input type="checkbox" id="tRF"><span class="swatch" style="background:linear-gradient(90deg,#9aa,#f39c12,#e74c3c)"></span>Red Fork analysis overlay</label>
+        <input type="range" id="rfOp" class="slider" min="0" max="100" value="70" disabled>
+        <div class="note" id="rfNote">Geological pay heatmap, drainage radii &amp; horizontal locations from the CLR Red Fork analysis (CLR op wells removed).</div>
+      </div>
+      <div class="grp">
+        <h3>Basemap</h3>
+        <select id="baseSel">
+          <option value="voyager">Light (Voyager)</option>
+          <option value="dark">Dark</option>
+          <option value="sat">Satellite</option>
+          <option value="topo">Topographic</option>
+        </select>
+      </div>
+      <div class="grp">
+        <div class="note">Acreage shapes &amp; section ownership from the entity inventories; wells from <i>Well List — Cinco/OLS/OE/Cherokee Moon</i>. Click any section or well for detail. Deals under evaluation can be added to <code>data.json</code> → <code>deals</code>.</div>
+      </div>
+    </aside>
+  </div>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const ECOLOR={Cinco:'#f4b400',OLS:'#e8731a',OE:'#3fa7d6','Cherokee Moon':'#1abc9c'};
+const SCOLOR={'PDP':'#2ecc71','DUC':'#f39c12','Spud':'#e74c3c','Permitted/Proposed':'#5dade2'};
+const SORDER=['PDP','DUC','Spud','Permitted/Proposed'];
+
+const map=L.map('map',{preferCanvas:true,zoomControl:true,attributionControl:true}).setView([35.6,-99.0],10);
+const bases={
+  voyager:L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{x}/{y}{r}.png',{maxZoom:19,attribution:'© OpenStreetMap, © CARTO'}),
+  dark:L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png',{maxZoom:19,attribution:'© OpenStreetMap, © CARTO'}),
+  sat:L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,attribution:'© Esri'}),
+  topo:L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',{maxZoom:17,attribution:'© OpenTopoMap'})
+};
+let curBase=bases.voyager.addTo(map);
+document.getElementById('baseSel').onchange=e=>{map.removeLayer(curBase);curBase=bases[e.target.value].addTo(map);curBase.bringToBack();};
+
+const gridLayer=L.layerGroup().addTo(map);
+const labelLayer=L.layerGroup().addTo(map);
+const entityLayers={}, wellLayers={};
+let DATA=null, rfOverlay=null;
+
+fetch('data.json').then(r=>r.json()).then(d=>{DATA=d;init(d);});
+
+function fmt(n){return n==null?'':Number(n).toLocaleString(undefined,{maximumFractionDigits:1});}
+
+function init(d){
+  const secs=d.sections;
+  // ---- STR grid (all sections, thin borders) ----
+  const allBounds=[];
+  for(const k in secs){
+    const s=secs[k];
+    L.polygon(s.r,{color:'#5a6f99',weight:.6,opacity:.55,fill:false,interactive:false}).addTo(gridLayer);
+    allBounds.push(...s.r);
+  }
+  if(allBounds.length) map.fitBounds(L.latLngBounds(allBounds).pad(.03));
+
+  // ---- entity acreage layers ----
+  d.entities.forEach(ent=>{
+    const lg=L.layerGroup();
+    for(const k in secs){
+      const s=secs[k];
+      if(s.own[ent]==null) continue;
+      const poly=L.polygon(s.r,{color:ECOLOR[ent],weight:1.3,fillColor:ECOLOR[ent],fillOpacity:.32,opacity:.9});
+      poly.bindPopup(secPopup(k,s));
+      poly.on('mouseover',()=>poly.setStyle({fillOpacity:.55}));
+      poly.on('mouseout',()=>poly.setStyle({fillOpacity:.32}));
+      poly.addTo(lg);
+    }
+    entityLayers[ent]=lg;
+  });
+  // default: Cinco on
+  entityLayers['Cinco'].addTo(map);
+
+  // ---- deals (data-driven, rotating) ----
+  const deals=d.deals||{};
+  Object.keys(deals).forEach(name=>{
+    const lg=L.layerGroup();
+    (deals[name].sections||[]).forEach(k=>{
+      const s=secs[k]; if(!s)return;
+      L.polygon(s.r,{color:'#e84393',weight:1.4,fillColor:'#e84393',fillOpacity:.3})
+        .bindPopup('<div class="pop-h">'+name+'</div>'+k).addTo(lg);
+    });
+    entityLayers[name]=lg; entityLayers[name]._deal=true;
+  });
+
+  // ---- wells ----
+  SORDER.forEach(st=>wellLayers[st]=L.layerGroup().addTo(map));
+  d.wells.forEach(w=>{
+    const c=SCOLOR[w.status]||'#aaa';
+    const m=L.circleMarker([w.lat,w.lng],{radius:5.5,color:'#0a0e1a',weight:1.2,fillColor:c,fillOpacity:1});
+    m.bindPopup(wellPopup(w));
+    (wellLayers[w.status]||wellLayers['Permitted/Proposed']).addLayer(m);
+  });
+
+  // ---- Red Fork overlay ----
+  const g=d.redfork;
+  rfOverlay=L.imageOverlay('redfork_overlay.webp',[[g.south,g.west],[g.north,g.east]],{opacity:.7});
+
+  buildUI(d);
+  refreshLabels();
+}
+
+function secPopup(k,s){
+  let rows=Object.keys(s.own).map(e=>`<span class="badge" style="background:${ECOLOR[e]}">${e}</span> ${fmt(s.own[e])} NMA`).join('<br>');
+  return `<div class="pop-h">Section ${k}</div>${rows||'—'}`;
+}
+function wellPopup(w){
+  return `<div class="pop-h">${w.name}</div>`+
+    `<span class="badge" style="background:${SCOLOR[w.status]||'#aaa'}">${w.status}</span> · ${w.entity}<br>`+
+    (w.op?`Operator: <b>${w.op}</b><br>`:'')+
+    (w.api?`API: ${w.api}<br>`:'')+
+    `Unit: ${w.str}<br>`+
+    (w.nma?`NMA: <b>${fmt(w.nma)}</b> · WI: ${w.wi!=null?(w.wi*100).toFixed(2)+'%':'—'} · NRI: ${w.nri!=null?(w.nri*100).toFixed(2)+'%':'—'}<br>`:'')+
+    (w.spud&&w.spud!='None'?`Spud: ${w.spud}<br>`:'')+
+    (w.comp&&w.comp!='None'?`Completed: ${w.comp}`:'');
+}
+
+function buildUI(d){
+  // entity pills
+  const bar=document.getElementById('scenBar');
+  d.entities.forEach(ent=>{
+    const p=document.createElement('div');
+    p.className='pill'+(ent==='Cinco'?' on':''); p.dataset.e=ent;
+    p.innerHTML=`<span class="dot" style="background:${ECOLOR[ent]}"></span>${ent}`;
+    p.onclick=()=>toggleEntity(ent,p);
+    bar.appendChild(p);
+  });
+  // deal pills
+  Object.keys(d.deals||{}).forEach(name=>{
+    const p=document.createElement('div'); p.className='pill deal'; p.dataset.e=name;
+    p.innerHTML=`<span class="dot" style="background:#e84393"></span>${name}`;
+    p.onclick=()=>toggleEntity(name,p); bar.appendChild(p);
+  });
+  // All / None
+  const sep=document.createElement('div');sep.className='sep';bar.appendChild(sep);
+  const all=document.createElement('div'); all.className='pill all'; all.textContent='All';
+  all.onclick=()=>{const on=!all.classList.contains('on');
+    document.querySelectorAll('.scen .pill[data-e]').forEach(p=>{const e=p.dataset.e;
+      if(on){if(!map.hasLayer(entityLayers[e]))entityLayers[e].addTo(map);p.classList.add('on');}
+      else{map.removeLayer(entityLayers[e]);p.classList.remove('on');}});
+    all.classList.toggle('on',on);};
+  bar.appendChild(all);
+
+  // KPIs
+  const kp=document.getElementById('kpis'); let tot=0;
+  d.entities.forEach(e=>{const v=d.entityTotals[e]||0;tot+=v;
+    kp.innerHTML+=`<div class="kpi"><span><span class="dot" style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${ECOLOR[e]};margin-right:6px"></span>${e}</span><b>${fmt(v)} NMA</b></div>`;});
+  kp.innerHTML+=`<div class="kpi" style="border:none;margin-top:4px"><span><b>Total</b></span><b>${fmt(tot)} NMA</b></div>`;
+  kp.innerHTML+=`<div class="kpi" style="border:none"><span>Wells</span><b>${d.wells.length}</b></div>`;
+
+  // well toggles
+  const wt=document.getElementById('wellToggles');
+  const counts={}; d.wells.forEach(w=>counts[w.status]=(counts[w.status]||0)+1);
+  SORDER.forEach(st=>{
+    const id='w_'+st.replace(/\W/g,'');
+    const row=document.createElement('label'); row.className='row';
+    row.innerHTML=`<input type="checkbox" id="${id}" checked><span class="swatch circle" style="background:${SCOLOR[st]}"></span>${st}<span class="cnt">${counts[st]||0}</span>`;
+    wt.appendChild(row);
+    row.querySelector('input').onchange=e=>{e.target.checked?wellLayers[st].addTo(map):map.removeLayer(wellLayers[st]);};
+  });
+
+  // grid toggle
+  document.getElementById('tGrid').onchange=e=>{
+    if(e.target.checked){gridLayer.addTo(map);refreshLabels();}
+    else{map.removeLayer(gridLayer);map.removeLayer(labelLayer);}
+  };
+  // red fork
+  const rf=document.getElementById('tRF'), op=document.getElementById('rfOp');
+  rf.onchange=e=>{ if(e.target.checked){rfOverlay.addTo(map);rfOverlay.setOpacity(op.value/100);op.disabled=false;}
+    else{map.removeLayer(rfOverlay);op.disabled=true;} };
+  op.oninput=e=>rfOverlay&&rfOverlay.setOpacity(e.target.value/100);
+}
+
+function toggleEntity(ent,pill){
+  const lg=entityLayers[ent]; if(!lg)return;
+  if(map.hasLayer(lg)){map.removeLayer(lg);pill.classList.remove('on');}
+  else{lg.addTo(map);pill.classList.add('on');}
+}
+
+// dynamic section-number labels (perf: only in view, zoom>=12)
+function refreshLabels(){
+  labelLayer.clearLayers();
+  if(!DATA||!document.getElementById('tGrid').checked) return;
+  if(map.getZoom()<12) return;
+  const b=map.getBounds(); let n=0;
+  for(const k in DATA.sections){
+    if(n>500)break;
+    const s=DATA.sections[k];
+    if(!b.contains(s.c))continue;
+    L.marker(s.c,{interactive:false,icon:L.divIcon({className:'seclbl',html:s.sec,iconSize:[20,12]})}).addTo(labelLayer);
+    n++;
+  }
+}
+map.on('moveend zoomend',refreshLabels);
+</script>
+</body>
+</html>
