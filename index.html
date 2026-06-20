@@ -51,6 +51,7 @@
   .pop-h{font-size:13.5px;font-weight:700;margin-bottom:4px}
   .cmdiamond{transform:rotate(45deg);border:1.4px solid #0a0e1a;box-shadow:0 0 0 1px rgba(255,255,255,.6)}
   .seclbl{color:#566;font-size:9.5px;font-weight:600;text-shadow:0 0 2px #fff,0 0 2px #fff,0 1px 2px #fff;background:none;border:none;box-shadow:none;white-space:nowrap}
+  .countylbl{color:#9aa1ab;opacity:.9;font-size:22px;font-weight:600;letter-spacing:5px;font-style:italic;white-space:nowrap;text-align:center;text-shadow:0 0 4px #fff,0 0 4px #fff,0 0 8px #fff;background:none;border:none;box-shadow:none}
   .twplbl{color:#42506b;font-size:13px;font-weight:700;letter-spacing:.5px;text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 6px #fff;background:none;border:none;box-shadow:none;white-space:nowrap;text-align:center}
   .badge{display:inline-block;padding:1px 7px;border-radius:10px;font-size:10.5px;font-weight:700;color:#0a0e1a}
   @media(max-width:780px){#side{width:220px}header h1 small{display:none}}
@@ -89,6 +90,7 @@
       </div>
       <div class="grp">
         <h3>Layers</h3>
+        <label class="row"><input type="checkbox" id="tCounty" checked><span class="swatch" style="background:transparent;border-color:#8a98ab"></span>County boundaries &amp; labels</label>
         <label class="row"><input type="checkbox" id="tGrid" checked><span class="swatch" style="background:transparent;border-color:#5a6f99"></span>STR grid &amp; section #s</label>
         <label class="row"><input type="checkbox" id="tRF"><span class="swatch" style="background:linear-gradient(90deg,#9aa,#f39c12,#e74c3c)"></span>Red Fork analysis overlay</label>
         <input type="range" id="rfOp" class="slider" min="0" max="100" value="70" disabled>
@@ -130,6 +132,8 @@ document.getElementById('baseSel').onchange=e=>{map.removeLayer(curBase);curBase
 const gridLayer=L.layerGroup().addTo(map);
 const labelLayer=L.layerGroup().addTo(map);
 const twpLabelLayer=L.layerGroup().addTo(map);
+const countyLayer=L.layerGroup().addTo(map);
+const countyLabelLayer=L.layerGroup().addTo(map);
 let twpCentroids=[];
 const entityLayers={}, wellLayers={}, cmWellLayers={};
 let DATA=null, rfOverlay=null, RF_IMG='';
@@ -186,13 +190,20 @@ function fmt(n){return n==null?'':Number(n).toLocaleString(undefined,{maximumFra
 function init(d){
   const secs=d.sections;
   // ---- STR grid (all sections, thin borders) ----
-  const allBounds=[];
+  const fitB=[];
   for(const k in secs){
     const s=secs[k];
     L.polygon(s.r,{color:'#5a6f99',weight:.6,opacity:.55,fill:false,interactive:false}).addTo(gridLayer);
-    allBounds.push(...s.r);
+    if(Object.keys(s.own).length) fitB.push(...s.r);     // fit to owned acreage (skip far outlier deal tracts)
   }
-  if(allBounds.length) map.fitBounds(L.latLngBounds(allBounds).pad(.03));
+  (d.wells||[]).forEach(w=>fitB.push([w.lat,w.lng]));
+  if(fitB.length) map.fitBounds(L.latLngBounds(fitB).pad(.03));
+
+  // ---- county boundaries + watermark labels ----
+  (d.counties||[]).forEach(co=>{
+    co.r.forEach(ring=>L.polygon(ring,{color:'#8a98ab',weight:1.5,opacity:.65,dashArray:'7 5',fill:false,interactive:false}).addTo(countyLayer));
+    L.marker(co.c,{interactive:false,zIndexOffset:-200,icon:L.divIcon({className:'countylbl',html:co.n,iconSize:[160,26]})}).addTo(countyLabelLayer);
+  });
 
   // ---- township centroids for T##N R##W labels ----
   const tw={};
@@ -359,6 +370,12 @@ function buildUI(d){
       cwrap.appendChild(row);
     });
   }
+
+  // county toggle
+  document.getElementById('tCounty').onchange=e=>{
+    if(e.target.checked){countyLayer.addTo(map);countyLabelLayer.addTo(map);}
+    else{map.removeLayer(countyLayer);map.removeLayer(countyLabelLayer);}
+  };
 
   // grid toggle
   document.getElementById('tGrid').onchange=e=>{
