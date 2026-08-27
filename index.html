@@ -106,7 +106,7 @@
         </select>
       </div>
       <div class="grp">
-        <div class="note"><b>Diagonal stripes</b> (sections &amp; well markers) = co-owned by multiple entities, blending those entities' colors. Acreage shapes &amp; section ownership from the entity inventories; wells from <i>Well List — Cinco/OLS/OE/Cherokee Moon</i>. Click any section or well for detail. Deals under evaluation can be added to <code>data.json</code> → <code>deals</code>.</div>
+        <div class="note"><b>Diagonal stripes</b> (sections &amp; well markers) = co-owned by multiple entities, blending those entities' colors. Acreage shapes &amp; section ownership from the entity inventories; wells from <i>Well List — Cinco/OLS/OE/Cherokee Moon</i>. Click any section or well for detail. Deals under evaluation can be added to <code>data.json</code> → <code>deals</code> (optional <code>tracts</code> draw aliquot-level footprints).</div>
       </div>
     </aside>
   </div>
@@ -243,14 +243,18 @@ function init(d){
   // ---- deals (data-driven, rotating acquisition targets) ----
   const deals=d.deals||{};
   Object.keys(deals).forEach(name=>{
-    const col=deals[name].color||'#e84393';
-    const secObj=deals[name].sections||{};
+    const D=deals[name], col=D.color||'#e84393';
+    const secObj=D.sections||{}, tracts=D.tracts||{};
     const lg=L.layerGroup();
     Object.keys(secObj).forEach(k=>{
       const s=secs[k]; if(!s)return;
-      const ac=secObj[k];
-      L.polygon(s.r,{color:col,weight:1.5,fillColor:col,fillOpacity:.35})
-        .bindPopup(`<div class="pop-h">${name}</div>Section ${k}`+(ac?`<br>${fmt(ac)} net ac`:'')).addTo(lg);
+      const ac=secObj[k], tr=tracts[k]||[];
+      const pop=dealPopup(name,D,k,s,ac,tr);
+      // aliquot-level footprints (optional per-tract "aliquots"/"box"); whole section outlined either way
+      const boxes=[]; tr.forEach(t=>{(t.aliquots||[]).forEach(a=>boxes.push(aliqBox(a))); if(t.box)boxes.push(t.box);});
+      L.polygon(s.r,{color:col,weight:boxes.length?1.2:1.5,dashArray:boxes.length?'4 3':null,fillColor:col,fillOpacity:boxes.length?.08:.35})
+        .bindPopup(pop).addTo(lg);
+      boxes.forEach(b=>L.polygon(boxPoly(s.r,b),{color:col,weight:1,fillColor:col,fillOpacity:.6}).bindPopup(pop).addTo(lg));
     });
     entityLayers[name]=lg; entityLayers[name]._deal=true; entityLayers[name]._color=col;
   });
@@ -292,6 +296,37 @@ function init(d){
   refreshLabels();
 }
 
+// ---- aliquot geometry for deal tracts ----
+// aliquot string e.g. "NE4 SW4" (rightmost token = largest unit) -> fraction box [x0,x1,y0,y1], x W->E, y S->N
+function aliqBox(str){
+  let b=[0,1,0,1];
+  String(str).toUpperCase().replace(/\//g,'').trim().split(/\s+/).reverse().forEach(t=>{
+    const mx=(b[0]+b[1])/2, my=(b[2]+b[3])/2;
+    if(t==='N2')b[2]=my; else if(t==='S2')b[3]=my; else if(t==='E2')b[0]=mx; else if(t==='W2')b[1]=mx;
+    else if(t==='NE4'){b[0]=mx;b[2]=my;} else if(t==='NW4'){b[1]=mx;b[2]=my;}
+    else if(t==='SE4'){b[0]=mx;b[3]=my;} else if(t==='SW4'){b[1]=mx;b[3]=my;}
+  });
+  return b;
+}
+// bilinear map of a fraction box onto a section ring (uses the 4 extreme corners of the ring)
+function boxPoly(ring,b){
+  let la0=1e9,la1=-1e9,lo0=1e9,lo1=-1e9; ring.forEach(p=>{la0=Math.min(la0,p[0]);la1=Math.max(la1,p[0]);lo0=Math.min(lo0,p[1]);lo1=Math.max(lo1,p[1]);});
+  const pick=(sy,sx)=>{let best=null,bs=-1e9;ring.forEach(p=>{const s=sy*(p[0]-la0)/(la1-la0||1)+sx*(p[1]-lo0)/(lo1-lo0||1);if(s>bs){bs=s;best=p;}});return best;};
+  const NW=pick(1,-1),NE=pick(1,1),SE=pick(-1,1),SW=pick(-1,-1);
+  const P=(x,y)=>[SW[0]*(1-x)*(1-y)+SE[0]*x*(1-y)+NW[0]*(1-x)*y+NE[0]*x*y, SW[1]*(1-x)*(1-y)+SE[1]*x*(1-y)+NW[1]*(1-x)*y+NE[1]*x*y];
+  return [P(b[0],b[2]),P(b[1],b[2]),P(b[1],b[3]),P(b[0],b[3])];
+}
+const DSTAT={'HBP':'#e67e22','Leased':'#2980b9','Open of Record':'#27ae60'};
+function dealPopup(name,D,k,s,ac,tr){
+  let h=`<div class="pop-h">${name}</div>Section ${k}`+(ac?` · <b>${fmt(ac)} NMA</b>`:'');
+  tr.forEach(t=>{h+=`<div style="margin-top:5px;padding-top:4px;border-top:1px solid #e3e6ea">${t.legal||''}`+
+    (t.status?` <span class="badge" style="background:${DSTAT[t.status]||'#7f8c8d'}">${t.status}</span>`:'')+
+    `<br><b>${fmt(t.nma)} NMA</b>`+(t.gross?` in ${fmt(t.gross)} gross ac (${(t.nma/t.gross*100).toFixed(2)}% MI)`:'')+(t.county?` · ${t.county} Co.`:'')+`</div>`;});
+  const own=Object.keys(s.own||{}).map(e=>`<span class="badge" style="background:${ECOLOR[e]}">${e}</span> ${fmt(s.own[e])}`).join(' · ');
+  if(own) h+=`<div style="margin-top:5px;padding-top:4px;border-top:1px solid #e3e6ea">Existing position: ${own} NMA</div>`;
+  if(D.note) h+=`<div style="margin-top:5px;color:#666;font-size:11px">${D.note}</div>`;
+  return h;
+}
 function secPopup(k,s){
   let rows=Object.keys(s.own).map(e=>`<span class="badge" style="background:${ECOLOR[e]}">${e}</span> ${fmt(s.own[e])} NMA`).join('<br>');
   return `<div class="pop-h">Section ${k}</div>${rows||'—'}`;
@@ -324,6 +359,9 @@ function buildUI(d){
   dealNames.forEach(name=>{
     const col=d.deals[name].color||'#e84393';
     const p=document.createElement('div'); p.className='pill'; p.dataset.e=name;
+    const dtot=Object.values(d.deals[name].sections||{}).reduce((a,b)=>a+(+b||0),0);
+    p.title=`${fmt(dtot)} NMA · ${Object.keys(d.deals[name].sections||{}).length} sections`+(d.deals[name].note?`
+${d.deals[name].note}`:'');
     p.innerHTML=`<span class="dot" style="background:${col}"></span>${name}`;
     p.onclick=()=>toggleEntity(name,p); bar.appendChild(p);
   });

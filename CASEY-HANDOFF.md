@@ -40,6 +40,33 @@ layer on the map. Format:
 
 To **add** a target, add a new entry. To **remove** one when the deal is dead, delete its entry.
 
+### Optional: aliquot-level footprints + tract detail (`tracts`)
+
+If you have the legal descriptions, add a `tracts` object alongside `sections` and the map will
+shade the actual quarter/half footprints inside the section (whole section dashed) and show the
+legal, status, county, and % mineral interest in the popup. Add a `note` for auction/source detail.
+
+```json
+"Bibb Estate (Hinz 9/10)": {
+  "color": "#7fd13b",
+  "note": "Hinz online mineral auction Sept 10, 2026 ...",
+  "sections": { "15-14N-19W": 200, "22-13N-23W": 3.08333 },
+  "tracts": {
+    "15-14N-19W": [ { "legal": "NE/4; NW/4; E/2 SE/4", "aliquots": ["NE4","NW4","E2 SE4"],
+                      "nma": 200, "gross": 400, "county": "Custer", "status": "HBP" } ],
+    "22-13N-23W": [ { "legal": "NE/4 SW/4", "aliquots": ["NE4 SW4"], "nma": 3.08333, "gross": 40,
+                      "county": "Roger Mills", "status": "Leased" } ]
+  }
+}
+```
+
+- `aliquots`: tokens `N2 S2 E2 W2 NE4 NW4 SE4 SW4`, written smallest-first like the legal
+  (`"NE4 SW4"` = NE/4 of the SW/4). One string per parcel; several strings for multi-part tracts.
+- `box`: alternative to `aliquots` for odd shapes — `[x0, x1, y0, y1]` fractions of the section
+  (x west→east, y south→north), e.g. east 75 ac of NE/4 = `[0.7656, 1, 0.5, 1]`.
+- `status` colors: `HBP`, `Leased`, `Open of Record` (anything else = grey).
+- `sections` is still required — it drives the pill total and the section outline.
+
 > If a section isn't already on the map grid it will still show (it's pulled from the data),
 > but if you add tracts in a brand-new area far outside NW Oklahoma and the section outline
 > doesn't render, send the STR list to Josh — the BLM polygon may need to be fetched.
